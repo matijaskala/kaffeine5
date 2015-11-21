@@ -91,7 +91,7 @@ public:
 	PlaylistModel(Playlist *visiblePlaylist_, QObject *parent);
 	~PlaylistModel();
 
-	virtual Qt::DropActions supportedDragActions() const;
+	virtual Qt::DropActions supportedDragActions() const override;
 
 	void setVisiblePlaylist(Playlist *visiblePlaylist_);
 	Playlist *getVisiblePlaylist() const;
