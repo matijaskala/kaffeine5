@@ -25,6 +25,7 @@
 #include <QSet>
 #include <QVariant>
 #include <QStandardPaths>
+#include <QDataStream>
 #include "../ensurenopendingoperation.h"
 #include "../log.h"
 #include "dvbdevice.h"
