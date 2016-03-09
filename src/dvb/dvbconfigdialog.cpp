@@ -23,6 +23,7 @@
 #include <QBoxLayout>
 #include <QButtonGroup>
 #include <QCheckBox>
+#include <QDesktopServices>
 #include <QLabel>
 #include <QProgressBar>
 #include <QPushButton>
@@ -31,6 +32,7 @@
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QDialogButtonBox>
+#include <QAction>
 #include <KComboBox>
 #include <QFileDialog>
 #include <KIO/Job>
@@ -41,6 +43,8 @@
 #include "dvbconfig.h"
 #include "dvbdevice.h"
 #include "dvbmanager.h"
+#include "dvbrecording.h"
+#include "../log.h"
 
 DvbConfigDialog::DvbConfigDialog(DvbManager *manager_, QWidget *parent) : QDialog(parent),
 	manager(manager_)
@@ -103,6 +107,33 @@ DvbConfigDialog::DvbConfigDialog(DvbManager *manager_, QWidget *parent) : QDialo
 	gridLayout->addWidget(endMarginBox, 3, 1);
 	boxLayout->addLayout(gridLayout);
 
+	gridLayout->addWidget(new QLabel(i18n("Naming style for recordings:")), 4, 0);
+
+	namingFormat = new KLineEdit(widget);
+	namingFormat->setText(manager->getNamingFormat());
+	namingFormat->setToolTip(i18n("The following substitutions work: \"%year\" for year (YYYY) and the following: %month, %day, %hour, %min, %sec, %channel and %title"));
+	connect(namingFormat, SIGNAL(textChanged(QString)), this, SLOT(namingFormatChanged(QString)));
+
+	gridLayout->addWidget(namingFormat, 4, 1);
+	boxLayout->addLayout(gridLayout);
+
+	validPixmap = QIcon::fromTheme(QLatin1String("dialog-ok-apply")).pixmap(KIconLoader::SizeSmallMedium);
+	invalidPixmap = QIcon::fromTheme(QLatin1String("dialog-cancel")).pixmap(KIconLoader::SizeSmallMedium);
+
+	namingFormatValidLabel = new QLabel(widget);
+	namingFormatValidLabel->setPixmap(validPixmap);
+	gridLayout->addWidget(namingFormatValidLabel, 4,2);
+
+
+	gridLayout->addWidget(new QLabel(i18n("Action after recording finishes.")),	5, 0);
+
+	actionAfterRecordingLineEdit = new KLineEdit(widget);
+	actionAfterRecordingLineEdit->setText(manager->getActionAfterRecording());
+	actionAfterRecordingLineEdit->setToolTip(i18n("Leave empty for no command."));
+	gridLayout->addWidget(actionAfterRecordingLineEdit, 5, 1);
+
+	boxLayout->addLayout(gridLayout);
+
 	gridLayout = new QGridLayout();
 	gridLayout->addWidget(new QLabel(i18n("Use ISO 8859-1 charset instead of ISO 6937:")),
 		1, 0);
@@ -110,6 +141,19 @@ DvbConfigDialog::DvbConfigDialog(DvbManager *manager_, QWidget *parent) : QDialo
 	override6937CharsetBox = new QCheckBox(widget);
 	override6937CharsetBox->setChecked(manager->override6937Charset());
 	gridLayout->addWidget(override6937CharsetBox, 1, 1);
+
+	gridLayout->addWidget(new QLabel(i18n("Create info files to accompany EPG recordings.")),
+		2, 0);
+	createInfoFileBox = new QCheckBox(widget);
+	createInfoFileBox->setChecked(manager->createInfoFile());
+	gridLayout->addWidget(createInfoFileBox, 2, 1);
+
+	gridLayout->addWidget(new QLabel(i18n("Scan channels when idle to fetch fresh EPG data.")),
+		3, 0);
+	scanWhenIdleBox = new QCheckBox(widget);
+	scanWhenIdleBox->setChecked(manager->isScanWhenIdle());
+	gridLayout->addWidget(scanWhenIdleBox, 3, 1);
+
 	boxLayout->addLayout(gridLayout);
 
 	QFrame *frame = new QFrame(widget);
@@ -122,6 +166,11 @@ DvbConfigDialog::DvbConfigDialog(DvbManager *manager_, QWidget *parent) : QDialo
 	QPushButton *pushButton = new QPushButton(i18n("Update scan data over Internet"), widget);
 	connect(pushButton, SIGNAL(clicked()), this, SLOT(updateScanFile()));
 	boxLayout->addWidget(pushButton);
+
+	QPushButton *openScanFileButton = new QPushButton(i18n("Edit scanfile"), widget);
+	connect(openScanFileButton, SIGNAL(clicked()), this, SLOT(openScanFile()));
+	boxLayout->addWidget(openScanFileButton);
+	openScanFileButton->setToolTip(i18n("You can add channels manually to this file before scanning for them."));
 
 	frame = new QFrame(widget);
 	frame->setFrameShape(QFrame::HLine);
@@ -164,6 +213,43 @@ DvbConfigDialog::DvbConfigDialog(DvbManager *manager_, QWidget *parent) : QDialo
 	// FIXME more general options
 
 	tabWidget->addTab(widget, QIcon::fromTheme(QLatin1String("configure")), i18n("General Options"));
+
+	QWidget *widgetAutomaticRecording = new QWidget(tabWidget);
+	QBoxLayout *boxLayoutAutomaticRecording = new QVBoxLayout(widgetAutomaticRecording);
+
+
+	QGridLayout *buttonGrid = new QGridLayout();
+	initRegexButtons(buttonGrid);
+
+	regexGrid = new QGridLayout();
+	int j = 0;
+	foreach (const QString regex, manager->getRecordingRegexList()) {
+		RegexInputLine *inputLine = new RegexInputLine();
+		inputLine->lineEdit = new KLineEdit(widget);
+		inputLine->lineEdit->setText(regex);
+		regexGrid->addWidget(inputLine->lineEdit, j, 0);
+		inputLine->checkBox = new QCheckBox(widget);
+		inputLine->checkBox->setChecked(false);
+		regexGrid->addWidget(inputLine->checkBox, j, 2);
+		inputLine->spinBox = new QSpinBox();
+		inputLine->spinBox->setValue(manager->getRecordingRegexPriorityList().value(j));
+		regexGrid->addWidget(inputLine->spinBox, j, 1);
+
+		inputLine->index = j;
+
+		regexInputList.append(inputLine);
+
+		j = j + 1;
+	}
+
+
+
+	boxLayoutAutomaticRecording->addLayout(buttonGrid);
+	boxLayoutAutomaticRecording->addLayout(regexGrid);
+
+	tabWidget->insertTab(1, widgetAutomaticRecording, QIcon::fromTheme(QLatin1String("configure")),
+			i18n("Automatic Recording"));
+	//
 
 	int i = 1;
 
@@ -220,6 +306,142 @@ void DvbConfigDialog::updateScanFile()
 	dialog->show();
 }
 
+void DvbConfigDialog::newRegex()
+{
+	RegexInputLine *inputLine = new RegexInputLine();
+
+	inputLine->lineEdit = new KLineEdit(tabWidget);
+	inputLine->lineEdit->setText("");
+	regexGrid->addWidget(inputLine->lineEdit, regexInputList.size(), 0);
+
+	inputLine->checkBox = new QCheckBox(tabWidget);
+	inputLine->checkBox->setChecked(false);
+	regexGrid->addWidget(inputLine->checkBox, regexInputList.size(), 2);
+
+	inputLine->spinBox = new QSpinBox(tabWidget);
+	inputLine->spinBox->setRange(0, 99);
+	inputLine->spinBox->setValue(5);
+	regexGrid->addWidget(inputLine->spinBox, regexInputList.size(), 1);
+
+	regexInputList.append(inputLine);
+}
+
+
+
+/**
+ * Helper function. Deletes all child widgets of the given layout @a item.
+ */
+void deleteChildWidgets(QLayoutItem *item) {
+    if (item->layout()) {
+        // Process all child items recursively.
+        for (int i = 0; i < item->layout()->count(); i++) {
+            deleteChildWidgets(item->layout()->itemAt(i));
+        }
+    }
+    delete item->widget();
+}
+
+
+/**
+ * Helper function. Removes all layout items within the given @a layout
+ * which either span the given @a row or @a column. If @a deleteWidgets
+ * is true, all concerned child widgets become not only removed from the
+ * layout, but also deleted.
+ */
+void DvbConfigDialog::removeWidgets(QGridLayout *layout, int row, int column, bool deleteWidgets) {
+    // We avoid usage of QGridLayout::itemAtPosition() here to improve performance.
+    for (int i = layout->count() - 1; i >= 0; i--) {
+        int r, c, rs, cs;
+        layout->getItemPosition(i, &r, &c, &rs, &cs);
+        if ((r <= row && r + rs - 1 >= row) || (c <= column && c + cs - 1 >= column)) {
+            // This layout item is subject to deletion.
+            QLayoutItem *item = layout->takeAt(i);
+            if (deleteWidgets) {
+                deleteChildWidgets(item);
+            }
+            delete item;
+        }
+    }
+}
+
+void DvbConfigDialog::initRegexButtons(QGridLayout *buttonGrid)
+{
+	QAction *action = new QAction(QIcon::fromTheme(QLatin1String("list-add")), i18nc("@action", "Add new Regex"), tabWidget);
+	connect(action, SIGNAL(triggered()), this, SLOT(newRegex()));
+	tabWidget->addAction(action);
+	QPushButton *pushButtonAdd = new QPushButton(action->icon(), action->text(), tabWidget);
+	connect(pushButtonAdd, SIGNAL(clicked()), this, SLOT(newRegex()));
+	buttonGrid->addWidget(pushButtonAdd, 0, 0);
+	pushButtonAdd->setToolTip(i18n("Add another regular expression."));
+
+	action = new QAction(QIcon::fromTheme(QLatin1String("edit-delete")), i18nc("@action", "Remove Regex"), tabWidget);
+	connect(action, SIGNAL(triggered()), this, SLOT(removeRegex()));
+	tabWidget->addAction(action);
+	QPushButton *pushButtonRemove = new QPushButton(action->icon(), action->text(), tabWidget);
+	connect(pushButtonRemove, SIGNAL(clicked()), this, SLOT(removeRegex()));
+	buttonGrid->addWidget(pushButtonRemove, 0, 1);
+	pushButtonRemove->setToolTip(i18n("Remove checked regular expressions."));
+}
+
+void DvbConfigDialog::removeRegex()
+{
+	//regexGrid = new QGridLayout(tabWidget);
+	//regexBoxMap = QMap<QCheckBox *, KLineEdit *>();
+	QList<RegexInputLine *> copyList = QList<RegexInputLine *>();
+	foreach(RegexInputLine *inputLine, regexInputList)
+	{
+		copyList.append(inputLine);
+	}
+	foreach(RegexInputLine *inputLine, copyList)
+	{
+		Log("DvbConfigDialog::removeRegex: list:");
+		if (inputLine->checkBox->isChecked()){
+			Log("DvbConfigDialog::removeRegex: checked:");
+			if (regexInputList.removeOne(inputLine)) {
+				Log("DvbConfigDialog::removeRegex: removed:");
+			}
+		}
+	}
+
+	QWidget *widgetAutomaticRecording = new QWidget(tabWidget);
+	QBoxLayout *boxLayoutAutomaticRecording = new QVBoxLayout(widgetAutomaticRecording);
+
+	QGridLayout *buttonGrid = new QGridLayout();
+	regexGrid = new QGridLayout();
+
+	initRegexButtons(buttonGrid);
+
+	int j = 0;
+	foreach (RegexInputLine *oldLine, regexInputList) {
+		RegexInputLine *inputLine = new RegexInputLine();
+		inputLine->lineEdit = new KLineEdit();
+		inputLine->lineEdit->setText(oldLine->lineEdit->text());
+		regexGrid->addWidget(inputLine->lineEdit, j, 0);
+		inputLine->checkBox = new QCheckBox();
+		inputLine->checkBox->setChecked(false);
+		regexGrid->addWidget(inputLine->checkBox, j, 2);
+		inputLine->spinBox = new QSpinBox();
+		inputLine->spinBox->setValue(oldLine->spinBox->value());
+		regexGrid->addWidget(inputLine->spinBox, j, 1);
+
+		inputLine->index = j;
+
+		j = j + 1;
+	}
+
+	boxLayoutAutomaticRecording->addLayout(buttonGrid);
+	boxLayoutAutomaticRecording->addLayout(regexGrid);
+	tabWidget->removeTab(1);
+	tabWidget->insertTab(1, widgetAutomaticRecording, QIcon::fromTheme(QLatin1String("configure")), i18n("Automatic Recording"));
+	tabWidget->setCurrentIndex(1);
+}
+
+void DvbConfigDialog::openScanFile()
+{
+	QString file(QStandardPaths::writableLocation(QStandardPaths::DataLocation) + "/" + QLatin1String("scanfile.dvb"));
+	QDesktopServices::openUrl(QUrl(file));
+}
+
 void DvbConfigDialog::latitudeChanged(const QString &text)
 {
 	bool ok;
@@ -241,6 +463,24 @@ void DvbConfigDialog::longitudeChanged(const QString &text)
 		longitudeValidLabel->setPixmap(validPixmap);
 	} else {
 		longitudeValidLabel->setPixmap(invalidPixmap);
+	}
+}
+
+void DvbConfigDialog::namingFormatChanged(QString text)
+{
+	QString temp = text.replace("%year", " ");
+	temp = temp.replace("%month", " ");
+	temp = temp.replace("%day", " ");
+	temp = temp.replace("%hour", " ");
+	temp = temp.replace("%min", " ");
+	temp = temp.replace("%sec"," ");
+	temp = temp.replace("%channel", " ");
+	temp = temp.replace("%title", " ");
+
+	if (!temp.contains("%")) {
+		namingFormatValidLabel->setPixmap(validPixmap);
+	} else {
+		namingFormatValidLabel->setPixmap(invalidPixmap);
 	}
 }
 
@@ -358,9 +598,25 @@ void DvbConfigDialog::accept()
 {
 	manager->setRecordingFolder(recordingFolderEdit->text());
 	manager->setTimeShiftFolder(timeShiftFolderEdit->text());
+	manager->setNamingFormat(namingFormat->text());
+	manager->setActionAfterRecording(actionAfterRecordingLineEdit->text());
 	manager->setBeginMargin(beginMarginBox->value() * 60);
 	manager->setEndMargin(endMarginBox->value() * 60);
 	manager->setOverride6937Charset(override6937CharsetBox->isChecked());
+	manager->setCreateInfoFile(createInfoFileBox->isChecked());
+	manager->setScanWhenIdle(scanWhenIdleBox->isChecked());
+	manager->setRecordingRegexList(QStringList());
+	manager->setRecordingRegexPriorityList(QList<int>());
+
+	foreach (RegexInputLine *regexInputLine, regexInputList)
+	{
+		manager->addRecordingRegex(regexInputLine->lineEdit->text());
+		Log("DvbConfigDialog::accept: saved regex:") <<
+				regexInputLine->lineEdit->text();
+		manager->addRecordingRegexPriority(regexInputLine->spinBox->value());
+		Log("DvbConfigDialog::accept: saved priority:") <<
+				regexInputLine->spinBox->value();
+	}
 
 	bool latitudeOk;
 	bool longitudeOk;
@@ -381,6 +637,10 @@ void DvbConfigDialog::accept()
 	}
 
 	manager->updateDeviceConfigs(configUpdates);
+	manager->getRecordingModel()->findNewRecordings();
+	manager->getRecordingModel()->removeDuplicates();
+	manager->getRecordingModel()->disableConflicts();
+	//manager->getRecordingModel()->scanChannels();
 
 	QDialog::accept();
 }

@@ -1,5 +1,6 @@
 [Desktop Entry]
 Name=Kaffeine
+Name[ast]=Kaffeine
 Name[bg]=Kaffeine
 Name[bs]=Kaffeine
 Name[ca]=Kaffeine
@@ -65,13 +66,14 @@ GenericName=Media Player
 GenericName[bg]=Медия плеър
 GenericName[bs]=Izvođač medija
 GenericName[ca]=Reproductor multimèdia
-GenericName[ca@valencia]=Reproductor de suports
+GenericName[ca@valencia]=Reproductor multimèdia
 GenericName[cs]=Přehrávač médií
 GenericName[csb]=Mùltimedialny grôcz
 GenericName[da]=Medieafspiller
 GenericName[de]=Medienwiedergabe
 GenericName[el]=Αναπαραγωγέας πολυμέσων
 GenericName[en_GB]=Media Player
+GenericName[eo]=Medioludilo
 GenericName[es]=Reproductor de medios
 GenericName[et]=Meediafailide mängija
 GenericName[eu]=Multimedia-erreproduzitzailea

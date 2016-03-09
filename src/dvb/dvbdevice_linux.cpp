@@ -27,7 +27,15 @@
 #include <fcntl.h>
 #include <frontend.h>
 #include <poll.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/types.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <sys/inotify.h>
+#include <vector>
+#include <stdlib.h>
 #include <unistd.h>
 #include "../log.h"
 #include "dvbtransponder.h"
@@ -808,6 +816,141 @@ void DvbLinuxDevice::run()
 	}
 }
 
+struct dvbdev {
+        time_t stctime;
+        char checked;
+        char adapter_name[50];
+        char node_name[75];
+        int adapternum;
+        char lnode[20];
+};
+
+class DvbDeviceMonitor : public QThread
+{
+public:
+        DvbDeviceMonitor(DvbLinuxDeviceManager *ddm)
+        {
+                this->ddm = ddm;
+        }
+        ~DvbDeviceMonitor()
+        {
+        }
+        void run() {
+                DIR *dvbdir, *adapterdirp;
+                struct dirent *dp, *dp2;
+                struct stat stbuf;
+                int adapter;
+                int rescan=0;
+                int rv;
+                int ifd;
+                int found=0;
+                char adapterdir[50];
+                char nodename[75];
+                char buffer[1024];
+                struct pollfd pfd;
+                char firstrun_complete=0;
+                std::vector<struct dvbdev*>adapterlist;
+                std::vector<struct dvbdev*>::iterator iter;
+
+                runstate = 1;
+
+                ifd = inotify_init();
+                inotify_add_watch(ifd, "/dev/dvb", IN_CREATE|IN_DELETE);
+                fcntl(ifd, F_SETFL, O_NONBLOCK);
+                pfd.fd = ifd;
+                pfd.events = POLLIN;
+
+                while(runstate) {
+                        if (firstrun_complete) {
+                                rv = poll(&pfd, 1, 100);
+                                switch (rv) {
+                                case -1:
+                                        break;
+                                case 0:
+                                        continue;
+                                default:
+                                        usleep(100000); /* give it some time to settle down */
+                                        while(read(ifd, buffer, 1024)>0);
+                                        break;
+                                }
+                        } else {
+                                firstrun_complete=1;
+                        }
+
+                        dvbdir = opendir("/dev/dvb");
+                        for (iter=adapterlist.begin();iter!=adapterlist.end();iter++) {
+                                (*iter)->checked=0;
+                        }
+                        if (dvbdir) {
+                                while((dp=readdir(dvbdir))!= 0) {
+                                        if (strcmp(dp->d_name, ".") == 0 ||
+                                            strcmp(dp->d_name, "..") == 0)
+                                                continue;
+                                        adapter = strtol(&dp->d_name[7], NULL, 10);
+                                        sprintf(adapterdir, "/dev/dvb/%s", dp->d_name);
+                                        adapterdirp = opendir(adapterdir);
+                                        if (adapterdirp) {
+                                                while((dp2=readdir(adapterdirp))!=0) {
+                                                        found=0;
+                                                        if (strcmp(dp2->d_name, ".")==0 ||
+                                                                strcmp(dp2->d_name, "..")==0)
+                                                                continue;
+                                                        sprintf(nodename, "/dev/dvb/%s/%s", dp->d_name, dp2->d_name);
+                                                        rv = stat(nodename, &stbuf);
+                                                        for (iter=adapterlist.begin();iter!=adapterlist.end();iter++) {
+                                                                if (strcmp((*iter)->node_name, nodename)==0 && (*iter)->stctime == stbuf.st_ctime) {
+                                                                        (*iter)->checked=1;
+                                                                        found=1;
+                                                                        break;
+                                                                }
+                                                        }
+                                                        if (found == 0) {
+                                                                struct dvbdev *dvbdev = (struct dvbdev*)calloc(1, sizeof(struct dvbdev));
+                                                                dvbdev->checked=1;
+                                                                dvbdev->stctime = stbuf.st_ctime;
+                                                                strcpy(dvbdev->adapter_name, dp->d_name);
+                                                                strcpy(dvbdev->node_name, nodename);
+                                                                dvbdev->adapternum = adapter;
+                                                                strcpy(dvbdev->lnode, dp2->d_name);
+                                                                adapterlist.push_back(dvbdev);
+                                                                ddm->componentAdded(dp2->d_name, adapter, 0);
+                                                        }
+
+                                                }
+                                                closedir(adapterdirp);
+                                        }
+                                }
+                                closedir(dvbdir);
+                        }
+                        do {
+                                rescan=0;
+                                for (iter=adapterlist.begin();iter!=adapterlist.end();iter++) {
+                                        if ((*iter)->checked==0) {
+                                                ddm->componentRemoved((*iter)->lnode, (*iter)->adapternum, 0);
+                                                free(*iter);
+                                                adapterlist.erase(iter);
+                                                rescan=1;
+                                                break;
+                                        }
+                                }
+                        } while (rescan!=0);
+                }
+        }
+        void stop() {
+                runstate = 0;
+                wait();
+        }
+private:
+        int runstate;
+        DvbLinuxDeviceManager *ddm;
+};
+
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__sun)
+#define MACHADDRESS "/tmp/.mediasocket"
+#else
+#define ADDRESS     "/de/sundtek/mediasocket"  /* addr to connect */
+#endif
+
 DvbLinuxDeviceManager::DvbLinuxDeviceManager(QObject *parent) : QObject(parent)
 {
     udev = udev_new();
@@ -839,6 +982,36 @@ void DvbLinuxDeviceManager::doColdPlug()
     udev_list_entry_foreach(entry, list)
         componentAdded(udev_list_entry_get_name(entry));
     udev_enumerate_unref(en);
+}
+
+void DvbLinuxDeviceManager::componentAdded(QString node, int adapter, int index) {
+        int deviceIndex = (adapter << 16) | index;
+        char adapterstring[10];
+        DvbLinuxDevice *device = devices.value(deviceIndex, NULL);
+        if (device == NULL) {
+                device = new DvbLinuxDevice(this);
+                devices.insert(deviceIndex, device);
+        }
+        sprintf(adapterstring, "adapter%d", adapter);
+
+        if (node == "frontend0") {
+                device->frontendPath.sprintf("/dev/dvb/%s/%s", adapterstring, node.toLatin1().data());
+        } else if (node == "dvr0") {
+                device->dvrPath.sprintf("/dev/dvb/%s/%s", adapterstring, node.toLatin1().data());
+        } else if (node == "demux0") {
+                device->demuxPath.sprintf("/dev/dvb/%s/%s", adapterstring, node.toLatin1().data());
+        } else {
+                return;
+        }
+
+	if (!device->demuxPath.isEmpty() && !device->dvrPath.isEmpty() &&
+	    !device->frontendPath.isEmpty()) {
+		device->startDevice("");
+
+		if (device->isReady()) {
+			emit deviceAdded(device);
+		}
+	}
 }
 
 void DvbLinuxDeviceManager::componentAdded(const QString &udi)
@@ -950,6 +1123,31 @@ void DvbLinuxDeviceManager::componentAdded(const QString &udi)
 		if (device->isReady()) {
 			emit deviceAdded(device);
 		}
+	}
+}
+
+void DvbLinuxDeviceManager::componentRemoved(QString node, int adapter, int index) {
+        int deviceIndex = (adapter << 16) | index;
+        char adapterstring[10];
+        DvbLinuxDevice *device = devices.value(deviceIndex, NULL);
+        if (device == NULL) {
+                return;
+        }
+        sprintf(adapterstring, "adapter%d", adapter);
+        if (node == "frontend0") {
+                device->frontendPath.clear();
+        } else if (node == "dvr0") {
+                device->dvrPath.clear();
+        } else if (node == "demux0") {
+                device->demuxPath.clear();
+        } else {
+                return;
+        }
+
+	if (device->frontendPath.isEmpty() && device->dvrPath.isEmpty() &&
+            device->demuxPath.isEmpty() && device->isReady()) {
+		emit deviceRemoved(device);
+		device->stopDevice();
 	}
 }
 

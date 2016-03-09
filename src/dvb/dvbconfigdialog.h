@@ -22,6 +22,8 @@
 #define DVBCONFIGDIALOG_H
 
 #include <QDialog>
+#include <QGridLayout>
+#include <QLayoutItem>
 
 class QDialogButtonBox;
 class QBoxLayout;
@@ -33,6 +35,7 @@ class QProgressBar;
 class QSpinBox;
 class QTreeWidget;
 class KComboBox;
+class QComboBox;
 class KJob;
 class KLineEdit;
 class QTabWidget;
@@ -49,6 +52,18 @@ class DvbManager;
 class DvbSConfigObject;
 class DvbSLnbConfigObject;
 
+class RegexInputLine : public QObject
+{
+	Q_OBJECT
+
+public:
+	int index;
+	KLineEdit *lineEdit;
+	QSpinBox *spinBox;
+	QCheckBox *checkBox;
+
+};
+
 class DvbConfigDialog : public QDialog
 {
 	Q_OBJECT
@@ -56,12 +71,19 @@ public:
 	DvbConfigDialog(DvbManager *manager_, QWidget *parent);
 	~DvbConfigDialog();
 
+signals:
+	void removeRegex(DvbConfigPage *page);
+
 private slots:
 	void changeRecordingFolder();
 	void changeTimeShiftFolder();
 	void updateScanFile();
+	void openScanFile();
+	void newRegex();
+	void removeRegex();
 	void latitudeChanged(const QString &text);
 	void longitudeChanged(const QString &text);
+	void namingFormatChanged(QString text);
 	void moveLeft(DvbConfigPage *configPage);
 	void moveRight(DvbConfigPage *configPage);
 	void remove(DvbConfigPage *configPage);
@@ -69,6 +91,9 @@ private slots:
 private:
 	static double toLatitude(const QString &text, bool *ok);
 	static double toLongitude(const QString &text, bool *ok);
+	void removeWidgets(QGridLayout *layout, int row, int column, bool deleteWidgets);
+	void initRegexButtons(QGridLayout *buttonGrid);
+	//void deleteChildWidgets(QLayoutItem *item);
 
 	void accept();
 
@@ -78,14 +103,21 @@ private:
 	KLineEdit *timeShiftFolderEdit;
 	QSpinBox *beginMarginBox;
 	QSpinBox *endMarginBox;
+	KLineEdit *namingFormat;
 	QCheckBox *override6937CharsetBox;
+	QCheckBox *createInfoFileBox;
+	QCheckBox *scanWhenIdleBox;
 	KLineEdit *latitudeEdit;
 	KLineEdit *longitudeEdit;
 	QPixmap validPixmap;
 	QPixmap invalidPixmap;
 	QLabel *latitudeValidLabel;
 	QLabel *longitudeValidLabel;
+	QLabel *namingFormatValidLabel;
 	QList<DvbConfigPage *> configPages;
+	KLineEdit *actionAfterRecordingLineEdit;
+	QGridLayout *regexGrid;
+	QList<RegexInputLine *> regexInputList;
 };
 
 class DvbScanFileDownloadDialog : public QDialog

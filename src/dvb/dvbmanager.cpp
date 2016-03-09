@@ -347,9 +347,44 @@ int DvbManager::getEndMargin() const
 	return Configuration::instance()->config()->group("DVB").readEntry("EndMargin", 600);
 }
 
+QString DvbManager::getNamingFormat() const
+{
+	return Configuration::instance()->config()->group("DVB").readEntry("NamingFormat", "%title");
+}
+
+QString DvbManager::getRecordingRegex() const
+{
+	return Configuration::instance()->config()->group("DVB").readEntry("RecordingRegex", "");
+}
+
+QStringList DvbManager::getRecordingRegexList() const
+{
+	return Configuration::instance()->config()->group("DVB").readEntry("RecordingRegexList", QStringList());
+}
+
+QList<int> DvbManager::getRecordingRegexPriorityList() const
+{
+	return Configuration::instance()->config()->group("DVB").readEntry("RecordingRegexPriorityList", QList<int>());
+}
+
+QString DvbManager::getActionAfterRecording() const
+{
+	return Configuration::instance()->config()->group("DVB").readEntry("ActionAfterRecording", "");
+}
+
 bool DvbManager::override6937Charset() const
 {
 	return Configuration::instance()->config()->group("DVB").readEntry("Override6937", false);
+}
+
+bool DvbManager::isScanWhenIdle() const
+{
+	return Configuration::instance()->config()->group("DVB").readEntry("ScanWhenIdle", false);
+}
+
+bool DvbManager::createInfoFile() const
+{
+	return Configuration::instance()->config()->group("DVB").readEntry("CreateInfoFile", false);
 }
 
 void DvbManager::setRecordingFolder(const QString &path)
@@ -372,10 +407,85 @@ void DvbManager::setEndMargin(int endMargin)
 	Configuration::instance()->config()->group("DVB").writeEntry("EndMargin", endMargin);
 }
 
+void DvbManager::setNamingFormat(QString namingFormat)
+{
+	Configuration::instance()->config()->group("DVB").writeEntry("NamingFormat", namingFormat);
+}
+
+void DvbManager::setRecordingRegex(QString regex)
+{
+	Configuration::instance()->config()->group("DVB").writeEntry("RecordingRegex", regex);
+}
+
+void DvbManager::setRecordingRegexList(const QStringList regexList)
+{
+	Configuration::instance()->config()->group("DVB").writeEntry("RecordingRegexList", regexList);
+}
+
+void DvbManager::setRecordingRegexPriorityList(const QList<int> regexList)
+{
+	Configuration::instance()->config()->group("DVB").writeEntry("RecordingRegexPriorityList", regexList);
+}
+
+bool DvbManager::addRecordingRegex(QString regex)
+{
+	QStringList regexList = getRecordingRegexList();
+	regexList.append(regex);
+	setRecordingRegexList(regexList);
+	return true;
+}
+
+bool DvbManager::addRecordingRegexPriority(int regexPriority)
+{
+	QList<int> regexPriorityList = getRecordingRegexPriorityList();
+	regexPriorityList.append(regexPriority);
+	setRecordingRegexPriorityList(regexPriorityList);
+	return true;
+}
+
+bool DvbManager::removeRecordingRegex(QString regex)
+{
+	QStringList regexList = getRecordingRegexList();
+	if (regexList.contains(regex)) {
+		regexList.removeOne(regex);
+		setRecordingRegexList(regexList);
+		return true;
+	}
+	setRecordingRegexList(regexList);
+	return false;
+}
+
+bool DvbManager::removeRecordingRegexPriority(int priority)
+{
+	QList<int> regexPriorityList = getRecordingRegexPriorityList();
+	if (regexPriorityList.contains(priority)) {
+		regexPriorityList.removeOne(priority);
+		setRecordingRegexPriorityList(regexPriorityList);
+		return true;
+	}
+	setRecordingRegexPriorityList(regexPriorityList);
+	return false;
+}
+
+void DvbManager::setActionAfterRecording(QString actionAfterRecording)
+{
+	Configuration::instance()->config()->group("DVB").writeEntry("ActionAfterRecording", actionAfterRecording);
+}
+
 void DvbManager::setOverride6937Charset(bool override)
 {
 	Configuration::instance()->config()->group("DVB").writeEntry("Override6937", override);
 	DvbSiText::setOverride6937(override);
+}
+
+void DvbManager::setScanWhenIdle(bool scanWhenIdle)
+{
+	Configuration::instance()->config()->group("DVB").writeEntry("ScanWhenIdle", scanWhenIdle);
+}
+
+void DvbManager::setCreateInfoFile(bool createInfoFile)
+{
+	Configuration::instance()->config()->group("DVB").writeEntry("CreateInfoFile", createInfoFile);
 }
 
 double DvbManager::getLatitude()
@@ -546,6 +656,7 @@ void DvbManager::readDeviceConfigs()
 			}
 
 			DvbConfigBase *config = new DvbConfigBase(type);
+			config->numberOfTuners = 1;
 			config->name = reader.readString(QLatin1String("name"));
 			config->scanSource = reader.readString(QLatin1String("scanSource"));
 			config->timeout = reader.readInt(QLatin1String("timeout"));
@@ -751,6 +862,8 @@ bool DvbManager::readScanSources(DvbScanData &data, const char *tag, Transmissio
 
 			if (!transponder.isValid()) {
 				parseError = true;
+				Log("DvbManager::readScanSources: cannot parse complete scan data");
+				Log("source: ") << QString::fromLatin1(line);
 			} else {
 				transponders.append(transponder);
 

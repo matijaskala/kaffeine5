@@ -128,6 +128,7 @@ void DvbRecordingDialog::removeRecording()
 	DvbRecordingModel *recordingModel = manager->getRecordingModel();
 
 	foreach (const DvbSharedRecording &recording, recordings) {
+		recordingModel->addToUnwantedRecordings(recording);
 		recordingModel->removeRecording(recording);
 	}
 }
@@ -246,6 +247,8 @@ QVariant DvbRecordingTableModel::headerData(int section, Qt::Orientation orienta
 			return i18nc("@title:column tv show", "Start");
 		case 3:
 			return i18nc("@title:column tv show", "Duration");
+		case 4:
+			return i18nc("@title:column tv show", "Disabled");
 		}
 	}
 
@@ -260,6 +263,9 @@ QVariant DvbRecordingTableModel::data(const QModelIndex &index, int role) const
 		switch (role) {
 		case Qt::DecorationRole:
 			if (index.column() == 0) {
+				if (recording->disabled) {
+					return QIcon::fromTheme(QLatin1String("dialog-error"));
+				}
 				switch (recording->status) {
 				case DvbRecording::Inactive:
 					break;
@@ -284,9 +290,15 @@ QVariant DvbRecordingTableModel::data(const QModelIndex &index, int role) const
 			case 2:
 				return QLocale().toString(recording->begin.toLocalTime());
 			case 3:
-				return recording->duration.toString();
-			}
+				return QLocale().toString(recording->duration);
+			case 4: {
+				if (recording->disabled) {
+					return QString("Disabled");
+				}
+				return QString("Enabled");
+				}
 
+			}
 			break;
 		}
 	}
@@ -522,6 +534,8 @@ void DvbRecordingEditor::checkValidity()
 void DvbRecordingEditor::accept()
 {
 	DvbRecording newRecording;
+	newRecording.disabled = false;
+	newRecording.priority = 100;
 	newRecording.name = nameEdit->text();
 	newRecording.channel =
 		manager->getChannelModel()->findChannelByName(channelBox->currentText());
