@@ -26,8 +26,6 @@
 #include <QSet>
 #include <QTextStream>
 #include <QXmlStreamWriter>
-#include <KLocalizedString>
-#include <KUrlMimeData>
 #include "../log.h"
 
 bool Playlist::load(const QUrl &url_, Format format)
@@ -789,15 +787,15 @@ QVariant PlaylistModel::headerData(int section, Qt::Orientation orientation, int
 	if ((orientation == Qt::Horizontal) && (role == Qt::DisplayRole)) {
 		switch (section) {
 		case 0:
-			return i18nc("playlist track", "Title");
+			return tr("playlist track", "Title");
 		case 1:
-			return i18nc("playlist track", "Artist");
+			return tr("playlist track", "Artist");
 		case 2:
-			return i18nc("playlist track", "Album");
+			return tr("playlist track", "Album");
 		case 3:
-			return i18nc("playlist track", "Track Number");
+			return tr("playlist track", "Track Number");
 		case 4:
-			return i18nc("playlist track", "Length");
+			return tr("playlist track", "Length");
 		}
 	}
 
@@ -981,7 +979,7 @@ bool PlaylistModel::dropMimeData(const QMimeData *data, Qt::DropAction action, i
 	}
 
 	if (data->hasUrls()) {
-		insertUrls(visiblePlaylist, row, KUrlMimeData::urlsFromMimeData(data), false);
+		insertUrls(visiblePlaylist, row, data->urls(), false);
 		return true;
 	}
 

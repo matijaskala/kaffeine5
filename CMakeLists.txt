@@ -11,6 +11,8 @@ find_package(VLC 1.2 REQUIRED)
 
 include(CheckIncludeFiles)
 include(KDEInstallDirs)
+include(KDECompilerSettings)
+include(ECMInstallIcons)
 include(ECMOptionalAddSubdirectory)
 
 set(CMAKE_AUTOMOC ON)
