@@ -453,6 +453,7 @@ void MediaWidget::play(MediaSource *source_)
 
 	source->setMediaWidget(this);
 	backend->play(*source);
+	actionPlayPause->setChecked(false);
 }
 
 void MediaWidget::mediaSourceDestroyed(MediaSource *mediaSource)

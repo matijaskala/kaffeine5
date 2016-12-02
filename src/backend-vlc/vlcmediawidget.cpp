@@ -137,10 +137,17 @@ void VlcMediaWidget::setDeinterlacing(bool deinterlacing)
 	libvlc_video_set_deinterlace(vlcMediaPlayer, vlcDeinterlaceMode);
 }
 
+#include <unistd.h>
 void VlcMediaWidget::play(const MediaSource &source)
 {
 	addPendingUpdates(PlaybackStatus | DvdMenu);
 	QByteArray url = source.getUrl().toEncoded();
+	char buf[50];
+	if (source.getUrl().isRelative()) {
+        url.prepend('/');
+        url.prepend(getcwd(buf, sizeof(buf)));
+        url.prepend("file://");
+	}
 	playingDvd = false;
 
 	switch (source.getType()) {
